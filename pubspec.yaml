@@ -1,0 +1,23 @@
+name: food_spoilage_mobile
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: ^3.5.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+  mqtt_client: ^9.6.2  # The latest version at the time of writing
+  http: ^1.2.2
+  syncfusion_flutter_gauges: ^27.1.57
+  google_fonts: ^6.2.1
+  provider: ^6.0.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
