@@ -1,14 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:mqtt_client/mqtt_client.dart';
-import 'package:mqtt_client/mqtt_server_client.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:syncfusion_flutter_gauges/gauges.dart';
 import 'package:provider/provider.dart'; // Import provider
-import 'mqtt_data_provider.dart'; // Import the data provider
+import 'providers/mqtt_data_provider.dart'; // Import the data provider
+import 'providers/monitoring_provider.dart';
+import 'providers/mqtt_connection_provider.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'dart:async';
+// import 'food_selection.dart';
+// import 'main.dart';
+import 'food_selection.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => MonitoringProvider(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -31,147 +42,237 @@ class MqttExample extends StatefulWidget {
 }
 
 class _MqttExampleState extends State<MqttExample> {
-  final client = MqttServerClient('192.168.55.105', 'flutter_mqtt_client');
-  String token = '1b4980f3491893dbff45774c86555c583c987700';
+  String token = '${dotenv.env['TOKEN']}';
   double temperature = 0.0;
   double humidity = 0.0;
-  int methane = 0;
-  String? notificationMessage;
+  double methane = 0.0;
+  double ammonia = 0.0;
 
+  String? notificationMessage;
+  String? spoilage_status;
   // Food choices
   final List<String> foodChoices = ['menudo', 'adobo', 'mechado'];
   String selectedFood = 'menudo'; // Default selection
-
+  late MqttDataProvider mqttDataProvider;
+  StreamSubscription<String>? sensorDataSubscription;
+  StreamSubscription<String>? notificationSubscription;
   @override
   void initState() {
     super.initState();
-    connectToMqtt();
-  }
 
-  Future<void> connectToMqtt() async {
-    client.port = 1883;
-    client.logging(on: true);
-    client.keepAlivePeriod = 60;
-    client.onDisconnected = onDisconnected;
-    client.onConnected = onConnected;
-    client.onSubscribed = onSubscribed;
+    final mqttProvider =
+        Provider.of<MqttConnectionProvider>(context, listen: false);
 
-    final connMessage = MqttConnectMessage()
-        .withClientIdentifier('flutter_mqtt_client')
-        .withWillTopic('willtopic')
-        .withWillMessage('Connection closed abnormally..')
-        .startClean()
-        .withWillQos(MqttQos.atLeastOnce);
-    client.connectionMessage = connMessage;
-
-    try {
-      await client.connect('admin', 'admin'); // MQTT broker credentials
-    } on Exception catch (e) {
-      print('ERROR: $e');
-      client.disconnect();
-    }
-
-    if (client.connectionStatus!.state == MqttConnectionState.connected) {
-      print('MQTT connected');
-      subscribeToTopics();
-    } else {
-      print('ERROR: MQTT connection failed - ${client.connectionStatus}');
-    }
-  }
-
-  void subscribeToTopics() {
-    final String sensorDataTopic = 'sensor/data/$token';
-    final String notificationTopic = 'sensor/notification/$token';
-    final String menuTopic =
-        'sensor/menu/$token'; // Subscribe to the menu topic
-
-    client.subscribe(sensorDataTopic, MqttQos.atMostOnce);
-    client.subscribe(notificationTopic, MqttQos.atMostOnce);
-    client.subscribe(
-        menuTopic, MqttQos.atMostOnce); // Subscribe to the menu topic
-
-    client.updates!.listen((List<MqttReceivedMessage<MqttMessage?>>? messages) {
-      for (var message in messages!) {
-        final MqttPublishMessage recMessage =
-            message.payload as MqttPublishMessage;
-        final String payload = MqttPublishPayload.bytesToStringAsString(
-            recMessage.payload.message);
-
-        if (message.topic == sensorDataTopic) {
-          handleSensorData(payload);
-        } else if (message.topic == notificationTopic) {
-          handleNotification(payload);
-        } else if (message.topic == menuTopic) {
-          handleMenuData(payload); // Handle menu data
-        }
-      }
+    sensorDataSubscription = mqttProvider.sensorDataStream.listen((payload) {
+      handleSensorData(payload);
     });
+
+    // notificationSubscription =
+    //     mqttProvider.notificationStream.listen((payload) {
+    //   handleNotification(payload);
+    // });
   }
 
-  void handleSensorData(String payload) {
+  @override
+  void dispose() {
+    sensorDataSubscription?.cancel();
+    notificationSubscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Store reference to MqttDataProvider
+    mqttDataProvider = Provider.of<MqttDataProvider>(context, listen: false);
+  }
+
+  Future<void> handleSensorData(String payload) async {
+    print(payload + 'yes');
     final data = jsonDecode(payload);
     double temperature = data['temperature'] ?? 0.0;
     double humidity = data['humidity'] ?? 0.0;
-    int methane = data['methane'] ?? 0;
+    double methane = data['methane'] ?? 0.0;
+    String spoilage_status = data['spoilage_status'] ?? '';
+    double ammonia = data['ammonia'] ?? 0.0;
 
-    // Update the provider with new sensor data
-    Provider.of<MqttDataProvider>(context, listen: false)
-        .updateSensorData(temperature, humidity, methane);
+    // // Get the provider instance
+    // // final mqttProvider = Provider.of<MqttDataProvider>(context, listen: false);
 
-    // Update local state (optional)
-    setState(() {
-      this.temperature = temperature;
-      this.humidity = humidity;
-      this.methane = methane;
-    });
-  }
+    // // Start monitoring if it hasn't started yet
+    if (!mqttDataProvider.isMonitoring) {
+      mqttDataProvider.startMonitoring();
+    }
 
-  void handleNotification(String payload) {
-    final notificationData = jsonDecode(payload);
-    final notificationId = notificationData['id'];
+    // // // Update the provider with new sensor data
+    mqttDataProvider.updateSensorData(
+        temperature, humidity, methane, spoilage_status, ammonia);
 
-    setState(() {
-      notificationMessage = notificationData['message'];
-    });
+    // Stop monitoring if the spoilage status indicates spoiled food
+    if (spoilage_status == 'Food is Spoiled' && mounted) {
+      mqttDataProvider.stopMonitoring();
 
-    print('Received notification: $notificationMessage');
-    print('Received notification id: $notificationId');
+      if (ModalRoute.of(context)?.settings.name != '/') {
+        // Navigate to MainPage and remove all previous routes
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => FoodSelection()),
+          (route) => false, // Remove all routes from the stack
+        );
+      }
+    }
 
-    if (notificationMessage != null) {
-      showDialog(
-        context: context,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('New Notification'),
-            content: Text(notificationMessage!),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  markNotificationAsRead(notificationId).then((_) {
-                    setState(() {
-                      notificationMessage = null;
-                    });
-                  });
-                },
-                child: const Text('Close'),
-              ),
-            ],
-          );
-        },
-      );
+    // Update local state only if the widget is mounted
+    if (mounted) {
+      setState(() {
+        this.temperature = temperature;
+        this.humidity = humidity;
+        this.methane = methane;
+        this.spoilage_status = spoilage_status;
+      });
     }
   }
 
-  void handleMenuData(String payload) {
-    // Handle the menu data received from the MQTT topic
-    print('Received menu data: $payload');
-    // Add your logic to handle menu data here
+  Future<void> fetchLatestSensorData() async {
+    final String url = '${dotenv.env['CLIENT_IP']}/latest-sensor-data/';
+    final response = await http.get(
+      Uri.parse(url),
+      headers: {'Authorization': 'Token ${dotenv.env['TOKEN']}'},
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data is List) {
+        if (data.isNotEmpty) {
+          final latestData = data.first;
+          Provider.of<MqttDataProvider>(context, listen: false)
+              .startMonitoring();
+          // Update the provider with new sensor data
+          Provider.of<MqttDataProvider>(context, listen: false)
+              .updateSensorData(
+            latestData['temperature'] ?? 0.0,
+            latestData['humidity'] ?? 0.0,
+            latestData['methane'] ?? 0,
+            latestData['spoilage_status'] ?? "",
+            latestData['ammonia'] ?? 0.0,
+          );
+
+          // Update local state as well
+          setState(() {
+            this.temperature = latestData['temperature'] ?? 0.0;
+            this.humidity = latestData['humidity'] ?? 0.0;
+            this.methane = latestData['methane'] ?? 0;
+            notificationMessage = null;
+          });
+        } else {
+          Provider.of<MqttDataProvider>(context, listen: false)
+              .stopMonitoring();
+          setState(() {
+            this.temperature = 0.0;
+            this.humidity = 0.0;
+            this.methane = 0;
+            notificationMessage = 'No active monitoring.';
+          });
+        }
+      }
+    } else {
+      print('Failed to fetch sensor data: ${response.body}');
+    }
+  }
+
+  // Future<void> fetchUnreadNotifications() async {
+  //   final String url =
+  //       '${dotenv.env['CLIENT_IP']}/notifications/warnings/unread/';
+  //   final response = await http.get(
+  //     Uri.parse(url),
+  //     headers: {'Authorization': 'Token ${dotenv.env['TOKEN']}'},
+  //   );
+
+  //   if (response.statusCode == 200) {
+  //     final data = jsonDecode(response.body);
+  //     if (data is List) {
+  //       setState(() {
+  //         pendingNotifications = data
+  //             .map((notif) => {
+  //                   'id': notif['id'],
+  //                   'message': notif['message'],
+  //                 })
+  //             .toList();
+  //       });
+  //       // Show the first notification, if there are any pending
+  //       if (pendingNotifications.isNotEmpty) {
+  //         _showNextNotification();
+  //       }
+  //     }
+  //   } else {
+  //     print('Failed to fetch unread notifications: ${response.body}');
+  //   }
+  // }
+
+  List<Map<String, dynamic>> pendingNotifications = [];
+  void handleNotification(String payload) {
+    print(payload + 'wahahha');
+    final notificationData = jsonDecode(payload);
+    final notificationId = notificationData['id'];
+    final notificationMessage = notificationData['message'];
+    final spoilageStatus = notificationData[
+        'spoilage_status']; // Ensure this key exists in your payload
+
+    // Check if the spoilage status is "Food is at Risk" or "Food is Fresh"
+    if (spoilageStatus == 'Food is at Risk' ||
+        spoilageStatus == 'Food is Fresh') {
+      // Add the new notification to the pending notifications list
+      setState(() {
+        pendingNotifications.add({
+          'id': notificationId,
+          'message': notificationMessage,
+        });
+      });
+
+      // If there is only one notification, display it immediately
+      if (pendingNotifications.length == 1) {
+        _showNextNotification();
+      }
+    } else {
+      print('Notification ignored. Spoilage status: $spoilageStatus');
+    }
+  }
+
+  void _showNextNotification() {
+    if (pendingNotifications.isEmpty) return;
+
+    final notification = pendingNotifications.first;
+    final notificationId = notification['id'];
+    final notificationMessage = notification['message'];
+
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('New Notification'),
+          content: Text(notificationMessage),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                markNotificationAsRead(notificationId).then((_) {
+                  setState(() {
+                    pendingNotifications.removeAt(0);
+                  });
+                  // No further notifications will be shown, just exit
+                });
+              },
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> markNotificationAsRead(int notificationId) async {
     final String url =
-        'http://192.168.55.105:8000/notifications/acknowledge/$notificationId/';
+        '${dotenv.env['CLIENT_IP']}/notifications/acknowledge/$notificationId/';
     final response = await http.post(Uri.parse(url));
     print(response);
 
@@ -182,26 +283,69 @@ class _MqttExampleState extends State<MqttExample> {
     }
   }
 
-  void onConnected() {
-    print('Connected to MQTT broker');
-  }
+  Future<void> publishEndMonitoring() async {
+    final mqttProvider =
+        Provider.of<MqttConnectionProvider>(context, listen: false);
+    final client = mqttProvider.mqttClient;
 
-  void onDisconnected() {
-    print('Disconnected from MQTT broker');
-  }
-
-  void onSubscribed(String topic) {
-    print('Subscribed to topic: $topic');
-  }
-
-  Future<void> publishMenuChoice() async {
-    final String menuTopic = 'sensor/menu/$token';
-    final payload = jsonEncode({'food_type': selectedFood});
+    final String endMonitoringTopic = 'sensor/monitoring/$token';
+    final payload = jsonEncode({'start_monitoring': false});
     final MqttClientPayloadBuilder builder = MqttClientPayloadBuilder();
     builder.addString(payload);
 
-    client.publishMessage(menuTopic, MqttQos.atLeastOnce, builder.payload!);
-    print('Published message to $menuTopic: $payload');
+    // Publish the end monitoring message
+    client.publishMessage(
+        endMonitoringTopic, MqttQos.atLeastOnce, builder.payload!);
+    print('Published end monitoring message to $endMonitoringTopic: $payload');
+
+    final response = await http.post(
+      Uri.parse('${dotenv.env['CLIENT_IP']}/end-monitoring/'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Token ${dotenv.env['TOKEN']}',
+      },
+      body: jsonEncode({'status': 'end'}),
+    );
+    print(response.body + 'hello');
+
+    if (response.statusCode == 200) {
+      print('Successfully marked end monitoring: ${response.body}');
+
+      // Use the stored reference
+      mqttDataProvider.updateSensorData(
+          0.0, // Temperature
+          0.0, // Humidity
+          0, // Methane
+          "", // Spoilage status
+          0.0);
+
+      mqttDataProvider.stopMonitoring();
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (context) => FoodSelection(), // Go back to MainPage
+        ),
+        (route) => false,
+      );
+    } else if (response.statusCode == 400 &&
+        jsonDecode(response.body)['message'] ==
+            'No active monitoring groups to end.') {
+      print('No active monitoring groups to end.');
+
+      // Use the stored reference
+      mqttDataProvider.stopMonitoring();
+
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (context) => FoodSelection(), // Go back to MainPage
+        ),
+        (route) => false,
+      );
+    } else {
+      print(
+          'Failed to mark end monitoring: ${response.statusCode} - ${response.body}');
+    }
   }
 
   @override
@@ -210,88 +354,168 @@ class _MqttExampleState extends State<MqttExample> {
 
     return Scaffold(
       appBar: AppBar(
-        toolbarHeight: 0,
-        backgroundColor: Colors.transparent,
+        automaticallyImplyLeading: false, // Removes the back button
+
+        backgroundColor:
+            Color(0xFFEEE2D0), // Make AppBar background transparent
+        elevation: 0, // Remove the shadow of the AppBar
+        flexibleSpace: Container(
+          width: double.infinity, // Ensures it captures full width
+          height: 100, // AppBar height
+          child: Padding(
+            padding:
+                const EdgeInsets.only(top: 50, left: 20), // Adjusted padding
+            child: Text(
+              'Food spoilage',
+              style: TextStyle(
+                fontSize: 22, // Adjusted text size for better balance
+                fontWeight: FontWeight.bold,
+                color: Colors.black,
+                fontFamily: 'Roboto', // Clean, modern font
+              ),
+            ),
+          ),
+        ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: DropdownButton<String>(
-                    value: selectedFood,
-                    onChanged: (String? newValue) {
-                      setState(() {
-                        selectedFood = newValue!;
-                      });
+      body: Container(
+        color: const Color(0xFFEEE2D0), // Light grey background color
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Icon(
+                    mqttData.isOnline ? Icons.cloud : Icons.cloud_off,
+                    color: mqttData.isOnline ? Colors.green : Colors.red,
+                    size: 30,
+                  ),
+                  SizedBox(width: 10),
+                  Text(
+                    mqttData.isOnline ? 'Online' : 'Offline',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: mqttData.isOnline ? Colors.green : Colors.red,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(width: 20),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                        iconColor: Color.fromARGB(255, 255, 255, 255),
+                        backgroundColor: Color.fromARGB(255, 255, 255, 255),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(
+                              12), // Optional: Add rounded corners to the button
+                        ),
+                        elevation:
+                            2, // Optional: Add a subtle shadow to the button for better visibility
+                        textStyle: TextStyle(
+                            color: Colors.black, fontWeight: FontWeight.bold)),
+                    onPressed: () {
+                      if (mqttData.isMonitoring) {
+                        // Show confirmation dialog
+                        showDialog(
+                          context: context,
+                          builder: (BuildContext context) {
+                            return AlertDialog(
+                              title: Text('End Monitoring'),
+                              content: Text(
+                                  'Are you sure you want to end monitoring?'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () {
+                                    Navigator.of(context)
+                                        .pop(); // Close the dialog
+                                  },
+                                  child: Text('Cancel'),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    publishEndMonitoring();
+                                    Navigator.of(context)
+                                        .pop(); // Close the dialog
+                                  },
+                                  child: Text('Yes, End Monitoring'),
+                                ),
+                              ],
+                            );
+                          },
+                        );
+                      }
                     },
-                    isExpanded: true,
-                    items: foodChoices
-                        .map<DropdownMenuItem<String>>((String value) {
-                      return DropdownMenuItem<String>(
-                        value: value,
-                        child: Text(value),
-                      );
-                    }).toList(),
+                    child: Text(
+                      'End Monitoring',
+                      style: TextStyle(
+                        color: mqttData.isMonitoring
+                            ? Colors.red
+                            : Colors
+                                .black, // Change text color based on monitoring state
+                      ),
+                    ),
+                  )
+                ],
+              ),
+              const SizedBox(height: 20),
+
+              // Display the spoilage message below the menu
+              if (mqttData.spoilage_status
+                  .isNotEmpty) // Check if there's a spoilage message
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10.0),
+                  child: Text(
+                    mqttData.spoilage_status,
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
                 ),
-                const SizedBox(width: 20),
-                ElevatedButton(
-                  onPressed: () {
-                    publishMenuChoice();
-                  },
-                  child: const Text('Submit'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            // Display the sensor values from the provider
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.0, end: mqttData.temperature),
-              duration: const Duration(milliseconds: 500),
-              builder: (context, value, child) {
-                return SensorCard(
-                  title: 'Temperature',
-                  value: '${value.toStringAsFixed(2)} °C',
-                  icon: Icons.thermostat,
-                  gaugeValue: value,
-                  gaugeMax: 100,
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.0, end: mqttData.humidity),
-              duration: const Duration(milliseconds: 500),
-              builder: (context, value, child) {
-                return SensorCard(
-                  title: 'Humidity',
-                  value: '${value.toStringAsFixed(2)} %',
-                  icon: Icons.water_drop,
-                  gaugeValue: value,
-                  gaugeMax: 100,
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.0, end: mqttData.methane.toDouble()),
-              duration: const Duration(milliseconds: 500),
-              builder: (context, value, child) {
-                return MethaneSensorCard(
-                  title: 'Methane',
-                  value: '$value ppm',
-                  icon: Icons.air,
-                  gaugeValue: value,
-                  gaugeMax: 4095,
-                );
-              },
-            ),
-          ],
+              SensorCard(
+                title: 'Temperature',
+                value: '${mqttData.temperature.toStringAsFixed(2)}',
+                icon: Icons.thermostat,
+                gaugeValue: mqttData.temperature,
+                gaugeMax: 50, // Max temperature
+                gaugeMin: -50, // Min temperature
+                unit: '°C', // Unit for temperature
+              ),
+              const SizedBox(height: 20),
+              SensorCard(
+                title: 'Humidity',
+                value: '${mqttData.humidity.toStringAsFixed(2)}',
+                icon: Icons.water_drop,
+                gaugeValue: mqttData.humidity,
+                gaugeMax: 100, // Max humidity
+                gaugeMin: 0, // Min humidity
+                unit: '%', // Unit for humidity
+              ),
+              const SizedBox(height: 20),
+              MethaneSensorCard(
+                title: 'Methane',
+                value: '${mqttData.methane} ppm',
+                icon: Icons.air,
+                gaugeValue: mqttData.methane.toDouble(),
+                gaugeMax: 4095,
+              ),
+              MethaneSensorCard(
+                title: 'Ammonia',
+                value: '${mqttData.ammonia} ppm',
+                icon: Icons.air,
+                gaugeValue: mqttData.ammonia.toDouble(),
+                gaugeMax: 4095,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -304,6 +528,8 @@ class SensorCard extends StatelessWidget {
   final IconData icon;
   final double gaugeValue;
   final double gaugeMax;
+  final double gaugeMin; // Add a minimum gauge value
+  final String unit; // Add a unit (like °C or %)
 
   const SensorCard({
     super.key,
@@ -312,11 +538,28 @@ class SensorCard extends StatelessWidget {
     required this.icon,
     required this.gaugeValue,
     required this.gaugeMax,
+    required this.gaugeMin,
+    required this.unit,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Define dynamic pointer and range colors
+    Color pointerColor = Colors.green; // Default color
+    Color needleCircleColor =
+        Colors.green; // Default color for the circle at the base of the needle
+
+    // Determine color based on gauge value
+    if (gaugeValue >= (gaugeMax / 1.5)) {
+      pointerColor = Colors.red; // Danger
+      needleCircleColor = Colors.red; // Set the circle to red
+    } else if (gaugeValue >= (gaugeMax / 3)) {
+      pointerColor = Colors.orange; // Caution
+      needleCircleColor = Colors.orange; // Set the circle to orange
+    }
+
     return Card(
+      color: Color.fromARGB(255, 255, 255, 255),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10.0),
       ),
@@ -326,59 +569,119 @@ class SensorCard extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.start,
           children: [
-            Container(
-              width: 300, // Increased width
-              height: 250, // Increased height
-              child: SfRadialGauge(
-                axes: <RadialAxis>[
-                  RadialAxis(
-                    minimum: 0,
-                    maximum: gaugeMax,
-                    interval: 10,
-                    ranges: <GaugeRange>[
-                      GaugeRange(
-                        startValue: 0,
-                        endValue: 10, // Safe (0 to 10°C)
-                        color: Colors.green,
-                        label: 'Safe',
-                      ),
-                      GaugeRange(
-                        startValue: 10,
-                        endValue: 25, // Caution (10 to 25°C)
-                        color: Colors.yellow,
-                        label: 'Caution',
-                      ),
-                      GaugeRange(
-                        startValue: 25,
-                        endValue: gaugeMax, // Danger (Above 25°C)
-                        color: Colors.red,
-                        label: 'Danger',
-                      ),
-                    ],
-                    pointers: <GaugePointer>[
-                      NeedlePointer(value: gaugeValue),
-                    ],
-                  )
-                ],
-              ),
-            ),
-            const SizedBox(height: 0), // Spacing between gauge and text
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+            // Icon and title at the top-left of the card
+            Row(
               children: [
-                Icon(icon, size: 40, color: Colors.blue),
-                const SizedBox(height: 10),
+                // Use ShaderMask with Gradient for the icon
+                ShaderMask(
+                  shaderCallback: (bounds) {
+                    return LinearGradient(
+                      colors: [
+                        Colors.teal,
+                        Colors.blue
+                      ], // Gradient from teal to blue
+                      tileMode: TileMode.mirror,
+                    ).createShader(bounds);
+                  },
+                  child: Icon(
+                    icon,
+                    size: 40,
+                    color: Colors
+                        .white, // The icon color will be overridden by the gradient
+                  ),
+                ),
+                const SizedBox(width: 10),
                 Text(
                   title,
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
+                    color: Colors.black, // Use black for better contrast
                   ),
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  value,
-                  style: const TextStyle(fontSize: 16),
+              ],
+            ),
+            const SizedBox(
+                height:
+                    10), // Reduced spacing between the icon/title and the gauge
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 300,
+                  height: 250,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0, end: gaugeValue),
+                    duration: const Duration(seconds: 1),
+                    builder: (context, value, child) {
+                      return SfRadialGauge(
+                        axes: <RadialAxis>[
+                          RadialAxis(
+                            minimum: gaugeMin, // Dynamic min value
+                            maximum: gaugeMax, // Dynamic max value
+                            interval: 10,
+                            ranges: <GaugeRange>[
+                              GaugeRange(
+                                startValue: gaugeMin,
+                                endValue:
+                                    (gaugeMax / 3), // Adjust range dynamically
+                                color: Colors.green,
+                                label: 'Safe',
+                                labelStyle: GaugeTextStyle(
+                                    fontSize: 12, color: Colors.white),
+                              ),
+                              GaugeRange(
+                                startValue: (gaugeMax / 3),
+                                endValue: (gaugeMax / 1.5),
+                                color: Colors.orange,
+                                label: 'Caution',
+                                labelStyle: GaugeTextStyle(
+                                    fontSize: 12, color: Colors.white),
+                              ),
+                              GaugeRange(
+                                startValue: (gaugeMax / 1.5),
+                                endValue: gaugeMax,
+                                color: Colors.red,
+                                label: 'Danger',
+                                labelStyle: GaugeTextStyle(
+                                    fontSize: 12, color: Colors.white),
+                              ),
+                            ],
+                            pointers: <GaugePointer>[
+                              NeedlePointer(
+                                value: value,
+                                needleColor:
+                                    pointerColor, // Dynamic pointer color
+                                knobStyle: KnobStyle(
+                                  color:
+                                      needleCircleColor, // Color of the circle at the base of the needle
+                                ),
+                                tailStyle: TailStyle(
+                                  color:
+                                      pointerColor, // Tail color same as the pointer color
+                                ),
+                              ),
+                            ],
+                            axisLabelStyle: GaugeTextStyle(
+                                fontSize: 12, color: Colors.black),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                // Position the value text absolutely
+                Positioned(
+                  bottom:
+                      0, // Adjust this value to move the text closer or farther
+                  child: Text(
+                    '$value $unit',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black, // Ensure value text is readable
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -408,6 +711,7 @@ class MethaneSensorCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      color: Color.fromARGB(255, 255, 255, 255),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10.0),
       ),
@@ -416,34 +720,13 @@ class MethaneSensorCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 15.0, vertical: 20.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Bar gauge for Methane
-            Container(
-              width: 300, // Set the width for the bar gauge
-              height: 30, // Set the height for the bar gauge
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Stack(
-                children: [
-                  Container(
-                    width: (gaugeValue / gaugeMax) *
-                        300, // Set width based on gauge value
-                    decoration: BoxDecoration(
-                      color: getGaugeColor(),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10), // Spacing between gauge and text
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+            // Row for icon and title on top-left
+            Row(
               children: [
                 Icon(icon, size: 40, color: Colors.blue),
-                const SizedBox(height: 10),
+                const SizedBox(width: 10), // Space between icon and title
                 Text(
                   title,
                   style: const TextStyle(
@@ -451,12 +734,47 @@ class MethaneSensorCard extends StatelessWidget {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  value,
-                  style: const TextStyle(fontSize: 16),
-                ),
               ],
+            ),
+            const SizedBox(
+                height: 10), // Spacing between icon/title and bar gauge
+            TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: gaugeValue),
+              duration: const Duration(seconds: 1),
+              builder: (context, value, child) {
+                return Container(
+                  width: 300, // Set the width for the bar gauge
+                  height: 30, // Set the height for the bar gauge
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Stack(
+                    children: [
+                      Container(
+                        width: (value / gaugeMax) *
+                            300, // Set width based on gauge value
+                        decoration: BoxDecoration(
+                          color: getGaugeColor(value),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 10), // Spacing between bar and value
+            // Centered value text below the gauge
+            Align(
+              alignment: Alignment.center,
+              child: Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           ],
         ),
@@ -464,10 +782,10 @@ class MethaneSensorCard extends StatelessWidget {
     );
   }
 
-  Color getGaugeColor() {
-    if (gaugeValue <= 1024) {
+  Color getGaugeColor(double value) {
+    if (value <= 1024) {
       return Colors.green; // Safe
-    } else if (gaugeValue <= 2048) {
+    } else if (value <= 2048) {
       return Colors.yellow; // Caution
     } else {
       return Colors.red; // Danger
