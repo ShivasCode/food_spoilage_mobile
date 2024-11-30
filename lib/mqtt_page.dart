@@ -67,10 +67,10 @@ class _MqttExampleState extends State<MqttExample> {
       handleSensorData(payload);
     });
 
-    // notificationSubscription =
-    //     mqttProvider.notificationStream.listen((payload) {
-    //   handleNotification(payload);
-    // });
+    notificationSubscription =
+        mqttProvider.notificationStream.listen((payload) {
+      handleNotification(payload);
+    });
   }
 
   @override
@@ -222,16 +222,18 @@ class _MqttExampleState extends State<MqttExample> {
     if (spoilageStatus == 'Food is at Risk' ||
         spoilageStatus == 'Food is Fresh') {
       // Add the new notification to the pending notifications list
-      setState(() {
-        pendingNotifications.add({
-          'id': notificationId,
-          'message': notificationMessage,
+      if (mounted) {
+        setState(() {
+          pendingNotifications.add({
+            'id': notificationId,
+            'message': notificationMessage,
+          });
         });
-      });
 
-      // If there is only one notification, display it immediately
-      if (pendingNotifications.length == 1) {
-        _showNextNotification();
+        // If there is only one notification, display it immediately
+        if (pendingNotifications.length == 1) {
+          _showNextNotification();
+        }
       }
     } else {
       print('Notification ignored. Spoilage status: $spoilageStatus');

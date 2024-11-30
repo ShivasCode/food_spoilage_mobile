@@ -14,6 +14,7 @@ import 'mqtt_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'login.dart';
 import 'dart:async';
+import 'notification_page.dart';
 
 void main() {
   runApp(
@@ -58,12 +59,10 @@ class FoodSelection extends StatefulWidget {
 class _FoodSelectionState extends State<FoodSelection> {
   bool isDataAvailable = false; // Flag to check if data is available
   String notificationMessage = 'Fetching data...';
+  String _username = ''; // To store the username
+
   // List of pages corresponding to each tab
-  // final List<Widget> _pages = [
-  //   FoodSelection(), // First tab
-  //   MonitoringGroupsPage(), // Second tab
-  //   ChartsPage(), // Placeholder for the charts page
-  // ];
+
   String token = '${dotenv.env['TOKEN']}';
   StreamSubscription<String>? statusDataSubscription;
   Timer? offlineTimer;
@@ -91,12 +90,20 @@ class _FoodSelectionState extends State<FoodSelection> {
 
     // Fetch the latest sensor data regardless of connection status
     fetchLatestSensorData();
-
+    _loadUsername();
     // Optionally listen for connection updates if needed
-    mqttConnectionProvider.addListener(() {
-      if (mqttConnectionProvider.isConnected) {
-        fetchUnreadNotifications();
-      }
+    // mqttConnectionProvider.addListener(() {
+    //   if (mqttConnectionProvider.isConnected) {
+    //     fetchUnreadNotifications();
+    //   }
+    // });
+  }
+
+  Future<void> _loadUsername() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _username = prefs.getString('username') ??
+          'Guest'; // Default to 'Guest' if no username found
     });
   }
 
@@ -138,8 +145,7 @@ class _FoodSelectionState extends State<FoodSelection> {
     final prefs = await SharedPreferences.getInstance();
 
     // Remove the token from SharedPreferences
-    await prefs.remove(
-        'TOKEN'); // Assuming 'TOKEN' is the key where your token is stored
+    await prefs.clear(); // Clear all stored data
 
     // Redirect to the login page
     Navigator.pushReplacement(
@@ -155,9 +161,11 @@ class _FoodSelectionState extends State<FoodSelection> {
 
   Future<void> fetchLatestSensorData() async {
     final String url = '${dotenv.env['CLIENT_IP']}/latest-sensor-data/';
+    final prefs = await SharedPreferences.getInstance();
+    final authToken = prefs.getString('authToken');
     final response = await http.get(
       Uri.parse(url),
-      headers: {'Authorization': 'Token ${dotenv.env['TOKEN']}'},
+      headers: {'Authorization': 'Token $authToken'},
     );
 
     if (response.statusCode == 200) {
@@ -213,9 +221,11 @@ class _FoodSelectionState extends State<FoodSelection> {
 
   Future<void> fetchUnreadNotifications() async {
     final String url = '${dotenv.env['CLIENT_IP']}/notifications/unread/';
+    final prefs = await SharedPreferences.getInstance();
+    final authToken = prefs.getString('authToken');
     final response = await http.get(
       Uri.parse(url),
-      headers: {'Authorization': 'Token ${dotenv.env['TOKEN']}'},
+      headers: {'Authorization': 'Token $authToken'},
     );
 
     if (response.statusCode == 200) {
@@ -395,6 +405,7 @@ class _FoodSelectionState extends State<FoodSelection> {
         },
       ),
       MonitoringGroupsPage(),
+      NotificationPage()
     ];
 
     if (!mqttProvider.isConnected) {
@@ -408,44 +419,49 @@ class _FoodSelectionState extends State<FoodSelection> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_currentIndex == 0
-            ? "Select Food to Monitor"
-            : "Monitoring Groups"),
+        title: Text(
+          "Hi, $_username", // Display Hi, {username} dynamically
+          style: const TextStyle(
+            fontSize: 20, // Adjust the font size
+            color: Colors
+                .black, // Use a color that complements the AppBar background
+          ),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
-            onPressed: () {
-              logout(); // Call the logout function when the logout button is pressed
-            },
+            onPressed:
+                logout, // Call the logout function when the logout button is pressed
           ),
         ],
       ),
       backgroundColor: const Color(0xFFEEE2D0), // Set background color here
       body: Column(
         children: [
-          // MQTT Status Section
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.start,
-              children: [
-                Icon(
-                  mqttData.isOnline ? Icons.cloud : Icons.cloud_off,
-                  color: mqttData.isOnline ? Colors.green : Colors.red,
-                  size: 30,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  mqttData.isOnline ? 'Online' : 'Offline',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+          // Conditionally hide the MQTT status section if the current page is the NotificationPage
+          if (_currentIndex != 2) // 2 corresponds to the Notification tab index
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  Icon(
+                    mqttData.isOnline ? Icons.cloud : Icons.cloud_off,
                     color: mqttData.isOnline ? Colors.green : Colors.red,
+                    size: 30,
                   ),
-                ),
-              ],
+                  const SizedBox(width: 10),
+                  Text(
+                    mqttData.isOnline ? 'Online' : 'Offline',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: mqttData.isOnline ? Colors.green : Colors.red,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
           // Main Content Section
           Expanded(child: pages[_currentIndex]),
         ],
@@ -460,6 +476,10 @@ class _FoodSelectionState extends State<FoodSelection> {
           BottomNavigationBarItem(
             icon: Icon(Icons.list),
             label: 'History',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.notifications),
+            label: 'Notifications', // Notification tab
           ),
         ],
         currentIndex: _currentIndex, // Reflect the selected index

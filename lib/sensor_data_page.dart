@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SensorDataPage extends StatefulWidget {
   final int groupId;
@@ -21,13 +22,12 @@ class _SensorDataPageState extends State<SensorDataPage> {
     final url =
         '${dotenv.env['CLIENT_IP']}/monitoring-groups/${widget.groupId}/';
     print('Fetching data from: $url');
-
+    final prefs = await SharedPreferences.getInstance();
+    final authToken = prefs.getString('authToken');
     try {
       final response = await http.get(
         Uri.parse(url),
-        headers: {
-          'Authorization': 'Token ${dotenv.env['TOKEN']}',
-        },
+        headers: {'Authorization': 'Token $authToken'},
       );
 
       print('Response status: ${response.statusCode}');
@@ -50,13 +50,12 @@ class _SensorDataPageState extends State<SensorDataPage> {
     final url =
         '${dotenv.env['CLIENT_IP']}/monitoring-groups/${widget.groupId}/export-csv/';
     print('Exporting CSV from: $url');
-
+    final prefs = await SharedPreferences.getInstance();
+    final authToken = prefs.getString('authToken');
     try {
       final response = await http.get(
         Uri.parse(url),
-        headers: {
-          'Authorization': 'Token ${dotenv.env['TOKEN']}',
-        },
+        headers: {'Authorization': 'Token $authToken'},
       );
 
       print('Export response status: ${response.statusCode}');

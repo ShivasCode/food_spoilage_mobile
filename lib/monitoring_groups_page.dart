@@ -3,16 +3,17 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'sensor_data_page.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class MonitoringGroupsPage extends StatelessWidget {
   const MonitoringGroupsPage({super.key});
 
   Future<List<dynamic>> fetchMonitoringGroups() async {
+    final prefs = await SharedPreferences.getInstance();
+    final authToken = prefs.getString('authToken');
     final response = await http.get(
       Uri.parse('${dotenv.env['CLIENT_IP']}/monitoring-groups/'),
-      headers: {
-        'Authorization': 'Token ${dotenv.env['TOKEN']}',
-      },
+      headers: {'Authorization': 'Token $authToken'},
     );
 
     if (response.statusCode == 200) {
@@ -25,33 +26,9 @@ class MonitoringGroupsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // appBar: AppBar(
-      //   backgroundColor: Color(0xFFEEE2D0), // Set the AppBar background color
-      //   elevation: 0, // Remove the shadow of the AppBar
-      //   flexibleSpace: Container(
-      //     width: double.infinity, // Ensures it captures full width
-      //     height: 100, // AppBar height
-
-      //     child: Padding(
-      //       padding:
-      //           const EdgeInsets.only(top: 0, left: 20), // Adjusted padding
-      //       child: Text(
-      //         'Monitoring Groups',
-      //         style: TextStyle(
-      //           fontSize: 22, // Adjusted text size for better balance
-      //           fontWeight: FontWeight.bold,
-      //           color: Colors.black,
-      //           fontFamily: 'Roboto', // Clean, modern font
-      //         ),
-      //       ),
-      //     ),
-      //   ),
-      // ),
-      backgroundColor: Color(0xFFEEE2D0), // Soft background color
+      backgroundColor: const Color(0xFFEEE2D0), // Soft background color
       body: Column(
         children: [
-          // AppBar with Teal Gradient and Clean Design
-          // Rest of your body content
           Expanded(
             child: FutureBuilder<List<dynamic>>(
               future: fetchMonitoringGroups(),
@@ -61,7 +38,8 @@ class MonitoringGroupsPage extends StatelessWidget {
                 } else if (snapshot.hasError) {
                   return Center(child: Text('Error: ${snapshot.error}'));
                 } else {
-                  final monitoringGroups = snapshot.data!;
+                  // Reverse the list to start the latest data from the top
+                  final monitoringGroups = snapshot.data!.reversed.toList();
                   return ListView.builder(
                     padding: const EdgeInsets.all(20.0),
                     itemCount: monitoringGroups.length,
@@ -80,7 +58,7 @@ class MonitoringGroupsPage extends StatelessWidget {
                           title: Row(
                             children: [
                               Text(
-                                group['food_type'],
+                                '${monitoringGroups.length - index}. ${group['food_type']}', // Adjusting count based on reversed index
                                 style: const TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
@@ -104,7 +82,7 @@ class MonitoringGroupsPage extends StatelessWidget {
                               const SizedBox(height: 4),
                               Text(
                                 'Start: ${group['start_time']}',
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 14,
                                   color: Colors.black54,
                                 ),
@@ -112,7 +90,7 @@ class MonitoringGroupsPage extends StatelessWidget {
                               const SizedBox(height: 4),
                               Text(
                                 'End: ${group['end_time'] ?? 'Not Yet Ended'}',
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 14,
                                   color: Colors.black54,
                                 ),
@@ -139,7 +117,7 @@ class MonitoringGroupsPage extends StatelessWidget {
                                 ),
                                 child: Text(
                                   group['is_done'] ? 'Completed' : 'Pending',
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     fontSize: 14,
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
