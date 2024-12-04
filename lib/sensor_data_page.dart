@@ -147,7 +147,7 @@ class _SensorDataPageState extends State<SensorDataPage> {
               ),
               DataColumn(
                 label: Text(
-                  'Humidity',
+                  'Ammonia',
                   style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold),
                 ),
               ),
@@ -183,7 +183,7 @@ class _SensorDataPageState extends State<SensorDataPage> {
                 DataCell(Padding(
                   padding: const EdgeInsets.all(2.0),
                   child: Text(
-                    '${data['humidity'] ?? 'N/A'} %',
+                    '${data['ammonia'] ?? 'N/A'} ppm', // Updated to display ammonia
                     style: const TextStyle(fontSize: 10),
                   ),
                 )),

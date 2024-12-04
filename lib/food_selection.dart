@@ -176,10 +176,13 @@ class _FoodSelectionState extends State<FoodSelection> {
         Provider.of<MqttDataProvider>(context, listen: false).startMonitoring();
         Provider.of<MqttDataProvider>(context, listen: false).updateSensorData(
           latestData['temperature'] ?? 0.0,
-          latestData['humidity'] ?? 0.0,
           latestData['methane'] ?? 0.0,
           latestData['spoilage_status'] ?? "",
           latestData['ammonia'] ?? 0.0,
+          latestData['methane_status'] ?? "",
+          latestData['temperature_status'] ?? "",
+          latestData['storage_status'] ?? "",
+          latestData['ammonia_status'] ?? "",
         );
 
         // Check if widget is still mounted before calling setState

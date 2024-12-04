@@ -44,12 +44,15 @@ class MqttExample extends StatefulWidget {
 class _MqttExampleState extends State<MqttExample> {
   String token = '${dotenv.env['TOKEN']}';
   double temperature = 0.0;
-  double humidity = 0.0;
   double methane = 0.0;
   double ammonia = 0.0;
 
   String? notificationMessage;
   String? spoilage_status;
+  String? methane_status;
+  String? temperature_status;
+  String? storage_status;
+
   // Food choices
   final List<String> foodChoices = ['menudo', 'adobo', 'mechado'];
   String selectedFood = 'menudo'; // Default selection
@@ -90,23 +93,31 @@ class _MqttExampleState extends State<MqttExample> {
   Future<void> handleSensorData(String payload) async {
     print(payload + 'yes');
     final data = jsonDecode(payload);
+
     double temperature = data['temperature'] ?? 0.0;
-    double humidity = data['humidity'] ?? 0.0;
     double methane = data['methane'] ?? 0.0;
     String spoilage_status = data['spoilage_status'] ?? '';
     double ammonia = data['ammonia'] ?? 0.0;
+    String methane_status = data['methane_status_message'] ?? '';
+    String temperature_status = data['temperature_status_message'] ?? '';
+    String storage_status = data['storage_status_message'] ?? '';
+    String ammonia_status = data['ammonia_status_message'] ?? '';
 
-    // // Get the provider instance
-    // // final mqttProvider = Provider.of<MqttDataProvider>(context, listen: false);
-
-    // // Start monitoring if it hasn't started yet
+    // Start monitoring if it hasn't started yet
     if (!mqttDataProvider.isMonitoring) {
       mqttDataProvider.startMonitoring();
     }
 
-    // // // Update the provider with new sensor data
+    // Update the provider with new sensor data
     mqttDataProvider.updateSensorData(
-        temperature, humidity, methane, spoilage_status, ammonia);
+        temperature,
+        methane,
+        spoilage_status,
+        ammonia,
+        methane_status,
+        temperature_status,
+        storage_status,
+        ammonia_status);
 
     // Stop monitoring if the spoilage status indicates spoiled food
     if (spoilage_status == 'Food is Spoiled' && mounted) {
@@ -126,9 +137,12 @@ class _MqttExampleState extends State<MqttExample> {
     if (mounted) {
       setState(() {
         this.temperature = temperature;
-        this.humidity = humidity;
         this.methane = methane;
         this.spoilage_status = spoilage_status;
+        // Optionally include the new fields if needed in the local state
+        this.methane_status = methane_status;
+        this.temperature_status = temperature_status;
+        this.storage_status = storage_status;
       });
     }
   }
@@ -151,16 +165,18 @@ class _MqttExampleState extends State<MqttExample> {
           Provider.of<MqttDataProvider>(context, listen: false)
               .updateSensorData(
             latestData['temperature'] ?? 0.0,
-            latestData['humidity'] ?? 0.0,
-            latestData['methane'] ?? 0,
+            latestData['methane'] ?? 0.0,
             latestData['spoilage_status'] ?? "",
             latestData['ammonia'] ?? 0.0,
+            latestData['methane_status'] ?? "",
+            latestData['temperature_status'] ?? "",
+            latestData['storage_status'] ?? "",
+            latestData['ammonia_status'] ?? "",
           );
 
           // Update local state as well
           setState(() {
             this.temperature = latestData['temperature'] ?? 0.0;
-            this.humidity = latestData['humidity'] ?? 0.0;
             this.methane = latestData['methane'] ?? 0;
             notificationMessage = null;
           });
@@ -169,7 +185,6 @@ class _MqttExampleState extends State<MqttExample> {
               .stopMonitoring();
           setState(() {
             this.temperature = 0.0;
-            this.humidity = 0.0;
             this.methane = 0;
             notificationMessage = 'No active monitoring.';
           });
@@ -316,10 +331,13 @@ class _MqttExampleState extends State<MqttExample> {
       // Use the stored reference
       mqttDataProvider.updateSensorData(
           0.0, // Temperature
-          0.0, // Humidity
           0, // Methane
           "", // Spoilage status
-          0.0);
+          0.0,
+          "",
+          "",
+          "",
+          "");
 
       mqttDataProvider.stopMonitoring();
       Navigator.pushAndRemoveUntil(
@@ -357,7 +375,6 @@ class _MqttExampleState extends State<MqttExample> {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false, // Removes the back button
-
         backgroundColor:
             Color(0xFFEEE2D0), // Make AppBar background transparent
         elevation: 0, // Remove the shadow of the AppBar
@@ -368,7 +385,7 @@ class _MqttExampleState extends State<MqttExample> {
             padding:
                 const EdgeInsets.only(top: 50, left: 20), // Adjusted padding
             child: Text(
-              'Food spoilage',
+              'Food Spoilage',
               style: TextStyle(
                 fontSize: 22, // Adjusted text size for better balance
                 fontWeight: FontWeight.bold,
@@ -412,16 +429,16 @@ class _MqttExampleState extends State<MqttExample> {
                   const SizedBox(width: 20),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                        iconColor: Color.fromARGB(255, 255, 255, 255),
-                        backgroundColor: Color.fromARGB(255, 255, 255, 255),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                              12), // Optional: Add rounded corners to the button
-                        ),
-                        elevation:
-                            2, // Optional: Add a subtle shadow to the button for better visibility
-                        textStyle: TextStyle(
-                            color: Colors.black, fontWeight: FontWeight.bold)),
+                      iconColor: Color.fromARGB(255, 255, 255, 255),
+                      backgroundColor: Color.fromARGB(255, 255, 255, 255),
+                      shape: RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.circular(12), // Rounded corners
+                      ),
+                      elevation: 2, // Subtle shadow for better visibility
+                      textStyle: TextStyle(
+                          color: Colors.black, fontWeight: FontWeight.bold),
+                    ),
                     onPressed: () {
                       if (mqttData.isMonitoring) {
                         // Show confirmation dialog
@@ -463,25 +480,271 @@ class _MqttExampleState extends State<MqttExample> {
                                 .black, // Change text color based on monitoring state
                       ),
                     ),
-                  )
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
 
-              // Display the spoilage message below the menu
-              if (mqttData.spoilage_status
-                  .isNotEmpty) // Check if there's a spoilage message
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 10.0),
-                  child: Text(
-                    mqttData.spoilage_status,
-                    style: TextStyle(
-                      color: Colors.red,
-                      fontWeight: FontWeight.bold,
+              // Display the 4 statuses
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Methane Status
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10.0),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12.0),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withOpacity(0.3),
+                            spreadRadius: 2,
+                            blurRadius: 5,
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                mqttData.methane_status ==
+                                        'Methane threshold exceeded. Food at risk.'
+                                    ? Icons.warning_amber_rounded
+                                    : Icons.info,
+                                color: mqttData.methane_status ==
+                                        'Methane threshold exceeded. Food at risk.'
+                                    ? Colors.red
+                                    : Colors.black,
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                'Methane Status:',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            mqttData.methane_status.isNotEmpty
+                                ? mqttData.methane_status
+                                : 'No data has been received yet.',
+                            style: TextStyle(
+                              fontWeight: FontWeight.normal,
+                              fontSize: 16,
+                              color: mqttData.methane_status ==
+                                      'Methane threshold exceeded. Food at risk.'
+                                  ? Colors.red
+                                  : Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    textAlign: TextAlign.center,
                   ),
-                ),
+
+                  // Ammonia Status
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10.0),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12.0),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withOpacity(0.3),
+                            spreadRadius: 2,
+                            blurRadius: 5,
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                mqttData.ammonia_status ==
+                                        'Ammonia threshold exceeded. Food at risk.'
+                                    ? Icons.warning_amber_rounded
+                                    : Icons.info,
+                                color: mqttData.ammonia_status ==
+                                        'Ammonia threshold exceeded. Food at risk.'
+                                    ? Colors.red
+                                    : Colors.black,
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                'Ammonia Status:',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            mqttData.ammonia_status.isNotEmpty
+                                ? mqttData.ammonia_status
+                                : 'No data has been received yet.',
+                            style: TextStyle(
+                              fontWeight: FontWeight.normal,
+                              fontSize: 16,
+                              color: mqttData.ammonia_status ==
+                                      'Ammonia threshold exceeded. Food at risk.'
+                                  ? Colors.red
+                                  : Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Temperature Status
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10.0),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12.0),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withOpacity(0.3),
+                            spreadRadius: 2,
+                            blurRadius: 5,
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                mqttData.temperature_status ==
+                                            'Food at Risk Due to High Temperature' ||
+                                        mqttData.temperature_status ==
+                                            'Food has been exposed to high temperature for over 2 hours. Spoilage risk detected.'
+                                    ? Icons.warning_amber_rounded
+                                    : Icons.info,
+                                color: mqttData.temperature_status ==
+                                            'Food at Risk Due to High Temperature' ||
+                                        mqttData.temperature_status ==
+                                            'Food has been exposed to high temperature for over 2 hours. Spoilage risk detected.'
+                                    ? Colors.red
+                                    : Colors.black,
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                'Temperature Status:',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            mqttData.temperature_status.isNotEmpty
+                                ? mqttData.temperature_status
+                                : 'No data has been received yet.',
+                            style: TextStyle(
+                              fontWeight: FontWeight.normal,
+                              fontSize: 16,
+                              color: mqttData.temperature_status ==
+                                          'Food at Risk Due to High Temperature' ||
+                                      mqttData.temperature_status ==
+                                          'Food has been exposed to high temperature for over 2 hours. Spoilage risk detected.'
+                                  ? Colors.red
+                                  : Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Storage Status
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10.0),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12.0),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withOpacity(0.3),
+                            spreadRadius: 2,
+                            blurRadius: 5,
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                mqttData.storage_status ==
+                                        'Food is at risk due to being stored for over 3 days.'
+                                    ? Icons.warning_amber_rounded
+                                    : Icons.info,
+                                color: mqttData.storage_status ==
+                                        'Food is at risk due to being stored for over 3 days.'
+                                    ? Colors.red
+                                    : Colors.black,
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                'Storage Status:',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                  color: Colors.black,
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            mqttData.storage_status.isNotEmpty
+                                ? mqttData.storage_status
+                                : 'No data has been received yet.',
+                            style: TextStyle(
+                              fontWeight: FontWeight.normal,
+                              fontSize: 16,
+                              color: mqttData.storage_status ==
+                                      'Food is at risk due to being stored for over 3 days.'
+                                  ? Colors.red
+                                  : Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
               SensorCard(
                 title: 'Temperature',
                 value: '${mqttData.temperature.toStringAsFixed(2)}',
@@ -492,15 +755,6 @@ class _MqttExampleState extends State<MqttExample> {
                 unit: '°C', // Unit for temperature
               ),
               const SizedBox(height: 20),
-              SensorCard(
-                title: 'Humidity',
-                value: '${mqttData.humidity.toStringAsFixed(2)}',
-                icon: Icons.water_drop,
-                gaugeValue: mqttData.humidity,
-                gaugeMax: 100, // Max humidity
-                gaugeMin: 0, // Min humidity
-                unit: '%', // Unit for humidity
-              ),
               const SizedBox(height: 20),
               MethaneSensorCard(
                 title: 'Methane',

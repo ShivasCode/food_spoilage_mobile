@@ -25,19 +25,19 @@ class Food {
 final List<Food> foods = [
   Food(
     id: 1,
-    name: "Adobo",
-    image: "assets/adobo.jpg",
-    estimatedSpoilage: "4-6 Days",
+    name: "Bicol Express",
+    image: "assets/bicol.jpg",
+    estimatedSpoilage: "3-5 Days",
     details: "Store at 40°F (4°C). Signs: Sour smell, oil separation.",
     description:
-        "A classic Filipino dish made with marinated pork or chicken, soy sauce, vinegar, garlic, and spices. A hearty meal often served with rice.",
+        "A spicy Filipino dish made with pork, shrimp, or fish cooked in coconut milk, shrimp paste, and chili peppers. It's a popular dish from Bicol, known for its heat and rich, creamy sauce.",
     storageTemperature:
-        "Ensure Adobo is stored at temperatures below 40°F (4°C). Keep refrigerated to prevent spoilage.",
+        "Ensure Bicol Express is stored at temperatures below 40°F (4°C). Keep refrigerated to prevent spoilage.",
     shelfLife:
-        "Consume within 3-4 days when stored in the fridge. Freezing can extend its shelf life but may alter texture slightly.",
+        "Consume within 3-5 days when stored in the fridge. Freezing can extend its shelf life but may affect the texture and flavor.",
     signsOfSpoilage: [
       "Sour or fermented smell",
-      "Oil separation with cloudy or thick appearance",
+      "Oil separation with a cloudy or thick appearance",
       "Mold growth",
     ],
   ),
